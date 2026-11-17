@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guthaben Checker – Mensaguthaben per NFC</title>
+<meta name="description" content="Karte ans iPhone halten und sofort Guthaben und letzte Buchung deiner Mensakarte sehen. Mit Pro: Verlauf, Ausgaben, Erkennung von Aufladungen und Widget.">
+<meta name="theme-color" content="#07080d">
+<link rel="icon" href="img/icon.png">
+<link rel="apple-touch-icon" href="img/icon.png">
+<script>document.documentElement.classList.add('js');</script>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #07080d;
+  --bg-2: #0d0f17;
+  --surface: #141722;
+  --line: rgba(255,255,255,.09);
+  --text: #f3f4f8;
+  --muted: #9ba1b6;
+  --blue: #0a84ff;
+  --indigo: #5e5ce6;
+  --green: #30d158;
+  --orange: #ff9f45;
+  --grad: linear-gradient(135deg, #1789ff 0%, #5e5ce6 100%);
+  --radius: 22px;
+  --pad: clamp(16px, 5vw, 56px);
+  --maxw: 1120px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 17px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+h1, h2, h3 { line-height: 1.08; letter-spacing: -.02em; margin: 0; text-wrap: balance; hyphens: auto; }
+h1 { font-size: clamp(2.3rem, min(7.4vw, 10vh), 5.4rem); font-weight: 800; }
+h2 { font-size: clamp(2rem, 5vw, 3.6rem); font-weight: 800; }
+h3 { font-size: clamp(1.2rem, 2.4vw, 1.5rem); font-weight: 700; letter-spacing: -.01em; }
+p { margin: 0; }
+a { color: #6fb4ff; }
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--pad); }
+.lead { font-size: clamp(1.08rem, 2vw, 1.4rem); color: var(--muted); max-width: 38em; }
+.eyebrow {
+  display: inline-block; font-size: .8rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: #8fc2ff; margin-bottom: 16px;
+}
+.gradtext { background: linear-gradient(100deg, #4aa3ff, #8b7bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pro-badge { display: inline-block; font-size: .72rem; font-weight: 800; letter-spacing: .06em; color: #6fb4ff; background: rgba(10,132,255,.16); border-radius: 999px; padding: 3px 9px; vertical-align: middle; }
+
+/* ---------- Kopfzeile ---------- */
+.top {
+  position: fixed; inset: 0 0 auto 0; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px var(--pad); padding-top: max(10px, env(safe-area-inset-top));
+  background: rgba(7,8,13,.72); backdrop-filter: saturate(160%) blur(16px); -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: .98rem; color: var(--text); text-decoration: none; }
+.brand img { width: 30px; height: 30px; border-radius: 8px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; cursor: pointer;
+  background: var(--blue); color: #fff; text-decoration: none; font: inherit; font-weight: 650;
+  padding: 14px 24px; border-radius: 999px; transition: transform .2s, background .2s;
+  min-height: 48px;
+}
+.btn:hover { background: #2a94ff; transform: translateY(-1px); }
+.btn.small { padding: 8px 16px; font-size: .9rem; min-height: 40px; }
+.btn.ghost { background: rgba(255,255,255,.08); }
+.btn.ghost:hover { background: rgba(255,255,255,.14); }
+.progress { position: absolute; left: 0; bottom: -1px; height: 2px; width: 100%; background: var(--grad); transform-origin: 0 50%; transform: scaleX(var(--scroll, 0)); }
+
+/* ---------- Einblenden beim Scrollen ---------- */
+.js .reveal { opacity: 0; transform: translateY(30px); transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1); transition-delay: var(--d, 0s); }
+.js .reveal.in { opacity: 1; transform: none; }
+
+/* ---------- Scroll-Szenen ---------- */
+.scene { position: relative; --p: 0; }
+.js .scene { height: var(--len, 300vh); }
+.js .scene > .sticky { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; }
+.scene > .sticky { display: flex; align-items: center; padding: 76px 0 24px; }
+section.block { padding: clamp(80px, 13vh, 140px) 0; }
+
+/* ---------- iPhone-Rahmen ---------- */
+.phone {
+  position: relative; height: min(64vh, 620px); aspect-ratio: 1206 / 2622; flex: none;
+  border-radius: 13.5% / 6.2%; background: #000; border: 7px solid #23262f;
+  box-shadow: 0 0 0 1.5px #3a3e4b, 0 40px 90px -20px rgba(10,132,255,.35), 0 30px 60px -30px #000;
+  overflow: hidden;
+}
+.phone::after { content: ""; position: absolute; top: 2.2%; left: 50%; width: 32%; height: 3.6%; transform: translateX(-50%); background: #000; border-radius: 999px; z-index: 3; }
+.phone img, .phone .screen { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- 1 · Hero ---------- */
+#hero { --len: 220vh; }
+#hero .sticky { flex-direction: column; justify-content: center; text-align: center; gap: clamp(16px, 3.5vh, 40px);
+  background: radial-gradient(60% 50% at 50% 66%, rgba(40,90,255,.28), transparent 70%); }
+#hero h1 { max-width: 11em; margin: 0 auto; }
+#hero .lead { margin: 16px auto 0; }
+.hero-stage { position: relative; flex: none; width: 100%; height: min(40vh, 400px); display: flex; justify-content: center; align-items: center; }
+.hero-stage .phone { height: 100%; }
+.hero-stage .phone img:last-child { opacity: clamp(0, calc(var(--p) * 2.4 - .9), 1); }
+.plastic {
+  position: absolute; left: 50%; top: 42%; width: min(56vw, 290px, 34vh); aspect-ratio: 85.6 / 54; border-radius: 14px;
+  background: linear-gradient(135deg, #ffffff 0%, #e4e9ff 60%, #c9d3ff 100%); color: #1f2a6b;
+  box-shadow: 0 24px 60px -12px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.6);
+  padding: 1em 1.2em; text-align: left; font-weight: 800; letter-spacing: .03em; z-index: 2;
+  font-size: clamp(.78rem, 2.4vh, 1rem);
+  transform:
+    translate(-50%, -50%)
+    translateX(calc((1 - var(--p)) * max(-32vw, -320px, -46vh)))
+    translateY(calc(var(--p) * -14vh))
+    rotate(calc((1 - var(--p)) * -12deg))
+    scale(calc(1 - var(--p) * .45));
+  opacity: calc(1.3 - var(--p) * 1.7);
+}
+.plastic .chip { position: absolute; left: 1.2em; bottom: 22%; width: 17%; aspect-ratio: 1.3; border-radius: 5px; background: linear-gradient(135deg, #f6d98a, #c79a3a); }
+.nfc { position: absolute; left: 50%; top: 9%; width: 70px; height: 34px; transform: translateX(-50%); z-index: 4;
+  opacity: calc(var(--p) * 4 - .4 - max(0, var(--p) * 5 - 3.4)); }
+.nfc i { position: absolute; left: 50%; bottom: 0; border: 3px solid var(--blue); border-color: var(--blue) transparent transparent; border-radius: 50%; transform: translateX(-50%); animation: wave 1.3s infinite; }
+.nfc i:nth-child(1) { width: 20px; height: 20px; }
+.nfc i:nth-child(2) { width: 42px; height: 42px; animation-delay: .15s; }
+.nfc i:nth-child(3) { width: 64px; height: 64px; animation-delay: .3s; }
+@keyframes wave { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+.scrollhint { font-size: .85rem; color: var(--muted); opacity: calc(1 - var(--p) * 5); }
+.scrollhint i { display: block; width: 1px; height: 30px; margin: 8px auto 0; background: linear-gradient(var(--muted), transparent); animation: drip 1.8s infinite; }
+@keyframes drip { 0% { transform: scaleY(0); transform-origin: top; } 60% { transform: scaleY(1); transform-origin: top; } 100% { transform: scaleY(1); opacity: 0; } }
+
+/* ---------- Schritt-Szenen (So geht's, Pro) ---------- */
+#sogehts { --len: 320vh; }
+#pro { --len: 420vh; }
+#pro .sticky { background: radial-gradient(50% 55% at 75% 55%, rgba(94,92,230,.22), transparent 70%); }
+.split { display: grid; grid-template-columns: 1fr auto; gap: clamp(24px, 6vw, 90px); align-items: center; width: 100%; }
+.steps { position: relative; display: grid; }
+.step { grid-area: 1 / 1; transition: opacity .5s, transform .5s; }
+.step .num { font-size: .85rem; font-weight: 700; color: #8fc2ff; letter-spacing: .1em; margin-bottom: 12px; }
+.step h3 { font-size: clamp(1.75rem, 4.2vw, 3rem); font-weight: 800; margin-bottom: 12px; }
+.step p { color: var(--muted); font-size: clamp(1.02rem, 1.7vw, 1.25rem); max-width: 28em; }
+.js .step { opacity: 0; transform: translateY(24px); pointer-events: none; }
+.js [data-step="0"] .step:nth-child(1), .js [data-step="1"] .step:nth-child(2),
+.js [data-step="2"] .step:nth-child(3), .js [data-step="3"] .step:nth-child(4) { opacity: 1; transform: none; pointer-events: auto; }
+html:not(.js) .step { grid-area: auto; margin-bottom: 32px; }
+.shots > * { transition: opacity .55s; }
+.js .shots > * { opacity: 0; }
+.js [data-step="0"] .shots > :nth-child(1), .js [data-step="1"] .shots > :nth-child(2),
+.js [data-step="2"] .shots > :nth-child(3), .js [data-step="3"] .shots > :nth-child(4) { opacity: 1; }
+.dots { display: flex; gap: 8px; margin-top: 28px; }
+.dots i { width: 26px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.16); transition: background .4s; }
+[data-step="0"] .dots i:nth-child(1), [data-step="1"] .dots i:nth-child(2),
+[data-step="2"] .dots i:nth-child(3), [data-step="3"] .dots i:nth-child(4) { background: var(--blue); }
+
+/* NFC-Scan-Fenster von iOS, nachgebaut */
+.scan-screen { background: #e9eaef url("img/start.jpg") center / cover; }
+.scan-screen::before { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.35); }
+.scan-screen { container-type: inline-size; }
+.sheet { position: absolute; left: 3%; right: 3%; bottom: 2%; background: #f5f5f8; border-radius: 9cqw; padding: 9cqw 7cqw 8cqw; text-align: center; color: #111; }
+.sheet b { display: block; font-size: 7.4cqw; color: #8a8a93; font-weight: 600; }
+.sheet .ico { width: 30cqw; height: 30cqw; margin: 7cqw auto; border-radius: 50%; border: 1.2cqw solid #0a84ff; display: grid; place-items: center; position: relative; }
+.sheet .ico::before, .sheet .ico::after { content: ""; position: absolute; inset: -1.2cqw; border-radius: 50%; border: 1.2cqw solid #0a84ff; animation: ping 1.8s infinite; }
+.sheet .ico::after { animation-delay: .9s; }
+@keyframes ping { from { transform: scale(1); opacity: .7; } to { transform: scale(1.55); opacity: 0; } }
+.sheet .ico svg { width: 46%; }
+.sheet p { font-size: 6.2cqw; line-height: 1.3; }
+.sheet .cancel { margin-top: 7cqw; background: #dedee3; border-radius: 4cqw; padding: 4cqw; font-size: 6.4cqw; font-weight: 600; }
+
+/* Widget, nachgebaut */
+.home-screen { background: radial-gradient(120% 80% at 20% 0%, #4b6cff 0%, #2b2f8f 45%, #120f35 100%); container-type: inline-size; }
+.home-screen .inner { padding: 22cqw 7cqw 0; }
+.lock-time { text-align: center; color: #fff; }
+.lock-time small { display: block; font-size: 5.4cqw; font-weight: 600; opacity: .85; }
+.lock-time strong { display: block; font-size: 25cqw; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.lock-widget, .home-widget { line-height: 1.25; white-space: nowrap; }
+.lock-widget { margin: 4cqw auto 0; width: 62%; padding: 3cqw 4cqw; border-radius: 4.5cqw; background: rgba(255,255,255,.18); backdrop-filter: blur(6px); color: #fff; }
+.lock-widget small { display: block; font-size: 4.2cqw; font-weight: 700; opacity: .9; }
+.lock-widget b { display: block; font-size: 7.4cqw; }
+.lock-widget span { display: block; font-size: 3.6cqw; opacity: .85; }
+.home-widget { width: 46cqw; aspect-ratio: 1; margin: 12cqw 0 0 2cqw; border-radius: 10cqw; padding: 5cqw; color: #fff;
+  background: linear-gradient(135deg, #1789ff, #5e5ce6); box-shadow: 0 4cqw 10cqw rgba(0,0,0,.4); display: flex; flex-direction: column; }
+.home-widget small { font-size: 4.6cqw; font-weight: 700; opacity: .9; }
+.home-widget b { margin-top: auto; font-size: 8.6cqw; letter-spacing: -.02em; }
+.home-widget span { font-size: 3.4cqw; opacity: .85; }
+.home-label { font-size: 4cqw; color: #fff; text-align: center; width: 46cqw; margin: 2cqw 0 0 2cqw; opacity: .9; }
+
+/* ---------- Karten & Raster ---------- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(20px, 3vw, 32px); }
+.card h3 { margin-bottom: 10px; }
+.card p { color: var(--muted); }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 44px; }
+.feat .ico { width: 46px; height: 46px; border-radius: 13px; background: rgba(10,132,255,.14); display: grid; place-items: center; margin-bottom: 16px; }
+.feat .ico svg { width: 24px; height: 24px; stroke: #6fb4ff; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.feat h3 { font-size: 1.18rem; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.list li { position: relative; padding-left: 30px; color: #d5d8e4; }
+.list li::before { content: ""; position: absolute; left: 0; top: .28em; width: 19px; height: 19px; border-radius: 50%; background: rgba(48,209,88,.16) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M5 9.4l2.6 2.6L13 6.6' fill='none' stroke='%2330d158' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain; }
+.list.plus li::before { background: rgba(10,132,255,.16) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M9 5v8M5 9h8' fill='none' stroke='%236fb4ff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center/contain; }
+.note { margin-top: 22px; border-left: 3px solid var(--blue); background: rgba(10,132,255,.08); border-radius: 0 16px 16px 0; padding: 18px 22px; color: #d5d8e4; }
+.note b { color: #fff; }
+.fine { margin-top: 22px; font-size: .88rem; color: var(--muted); }
+
+/* ---------- Erkennung (Rechenbeispiel) ---------- */
+#erkennung { background: var(--bg-2); border-block: 1px solid var(--line); }
+.calc { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: stretch; margin-top: 44px; }
+.calc .scan small { display: block; font-size: .78rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.calc .scan strong { display: block; font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.calc .scan span { color: var(--muted); font-size: .95rem; }
+.calc .arrow { display: grid; place-items: center; color: var(--muted); font-size: 1.8rem; }
+.split-result { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.amount { position: relative; overflow: hidden; }
+.amount small { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1rem; }
+.amount strong { display: block; margin-top: 6px; font-size: clamp(2.1rem, 6vw, 3.4rem); font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.amount .bar { height: 6px; border-radius: 3px; margin-top: 16px; background: rgba(255,255,255,.08); overflow: hidden; }
+.amount .bar i { display: block; height: 100%; width: 0; border-radius: 3px; transition: width 1.2s cubic-bezier(.2,.7,.2,1) .2s; }
+.amount.up small, .amount.up strong { color: var(--green); }
+.amount.up .bar i { background: var(--green); }
+.amount.down small { color: #a5a3ff; }
+.amount.down .bar i { background: var(--indigo); }
+.split-result.in .up .bar i { width: 100%; }
+.split-result.in .down .bar i { width: 21.5%; }
+.hint-l { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--muted); }
+.chip-l { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; color: var(--text); font-weight: 600; font-size: .95rem; }
+
+/* ---------- Kostenlos & Pro ---------- */
+.plans { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 44px; }
+.plan .price { font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -.02em; margin: 6px 0 4px; }
+.plan .sub { color: var(--muted); margin-bottom: 22px; }
+.plan.pro { border-color: rgba(10,132,255,.45); background: linear-gradient(180deg, rgba(10,132,255,.1), var(--surface) 55%); }
+
+/* ---------- Fragen ---------- */
+.faq { margin-top: 36px; border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { list-style: none; cursor: pointer; padding: 20px 44px 20px 0; font-weight: 700; font-size: clamp(1.05rem, 2vw, 1.25rem); position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 1.6rem; font-weight: 400; color: var(--muted); transition: transform .25s; }
+.faq details[open] summary::after { transform: translateY(-50%) rotate(45deg); }
+.faq details p { color: var(--muted); padding: 0 0 22px; max-width: 46em; }
+
+/* ---------- Schluss ---------- */
+#laden { text-align: center; background: radial-gradient(60% 60% at 50% 100%, rgba(40,90,255,.3), transparent 70%); }
+#laden .lead { margin: 18px auto 0; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 34px; }
+footer { border-top: 1px solid var(--line); padding: 28px 0 calc(40px + env(safe-area-inset-bottom)); font-size: .86rem; color: var(--muted); text-align: center; }
+footer p { max-width: 52em; margin: 0 auto; }
+footer nav { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+footer nav a { color: var(--text); text-decoration: none; padding: 6px 2px; }
+
+/* ---------- Schmal (Handy) ---------- */
+@media (max-width: 820px) {
+  .grid3, .grid4, .plans { grid-template-columns: 1fr; }
+  .grid4 { grid-template-columns: 1fr 1fr; }
+  .split { grid-template-columns: 1fr; justify-items: center; gap: 18px; }
+  .split > .phone { order: -1; height: min(46vh, 430px); }
+  .steps { width: 100%; }
+  .step h3 { margin-bottom: 8px; font-size: clamp(1.6rem, 7vw, 2.2rem); }
+  .step p { font-size: 1.02rem; }
+  .dots { margin-top: 14px; }
+  .calc { grid-template-columns: 1fr 1fr; }
+  .calc .arrow { display: none; }
+  #sogehts { --len: 270vh; }
+  #pro { --len: 340vh; }
+}
+@media (max-width: 480px) {
+  .grid4 { grid-template-columns: 1fr; }
+  .split-result { grid-template-columns: 1fr; }
+  .top .btn.small { padding: 7px 13px; font-size: .85rem; }
+  .brand { font-size: .92rem; }
+}
+@media (max-height: 720px) {
+  .scene > .sticky { padding: 64px 0 12px; }
+  #hero .sticky { gap: 12px; }
+  #hero .eyebrow { margin-bottom: 8px; }
+  #hero .lead { margin-top: 10px; font-size: 1.02rem; }
+  .hero-stage { height: 34vh; }
+  .scrollhint i { height: 16px; margin-top: 4px; }
+  .split > .phone { height: min(40vh, 380px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .js .reveal { opacity: 1; transform: none; transition: none; }
+  * { animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#hero"><img src="img/icon.png" alt=""> Guthaben Checker</a>
+  <a class="btn small" href="#laden" data-store>App laden</a>
+  <div class="progress" aria-hidden="true"></div>
+</header>
+
+<main>
+
+<!-- 1 · HERO -->
+<section class="scene" id="hero">
+  <div class="sticky">
+    <div class="wrap">
+      <span class="eyebrow">Für iPhone · Mensakarten mit NFC</span>
+      <h1>Dein Mensaguthaben. <span class="gradtext">In einer Sekunde.</span></h1>
+      <p class="lead">Karte ans iPhone halten – schon siehst du Guthaben und letzte Buchung. Ohne Automat, ohne Anmeldung.</p>
+    </div>
+    <div class="hero-stage" aria-hidden="true">
+      <div class="plastic">MENSAKARTE<span class="chip"></span></div>
+      <div class="phone">
+        <img src="img/start.jpg" alt="">
+        <img src="img/ergebnis.jpg" alt="">
+        <div class="nfc"><i></i><i></i><i></i></div>
+      </div>
+    </div>
+    <div class="scrollhint">Scrollen<i></i></div>
+  </div>
+</section>
+
+<!-- 2 · SO GEHT'S -->
+<section class="scene" id="sogehts" data-steps="3" data-step="0">
+  <div class="sticky">
+    <div class="wrap split">
+      <div class="steps-col">
+        <span class="eyebrow">So geht’s</span>
+        <div class="steps">
+          <div class="step">
+            <div class="num">01 — STARTEN</div>
+            <h3>„Karte scannen“ tippen.</h3>
+            <p>App öffnen, auf den großen Knopf tippen. Kein Konto, keine Anmeldung, nichts einzurichten.</p>
+          </div>
+          <div class="step">
+            <div class="num">02 — HALTEN</div>
+            <h3>Karte an die Oberseite halten.</h3>
+            <p>Die App liest die Karte per NFC – dieselbe Funktechnik, mit der du an der Kasse bezahlst. Ein kurzer Ton und eine Vibration bestätigen den Scan.</p>
+          </div>
+          <div class="step">
+            <div class="num">03 — SEHEN</div>
+            <h3>Guthaben und letzte Buchung.</h3>
+            <p>Sofort auf dem Display, bevor du dich in die Schlange stellst. Unter „Kartendetails“ stehen außerdem Kartentyp und Kartennummer.</p>
+          </div>
+        </div>
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+      <div class="phone shots">
+        <img src="img/start.jpg" alt="Startbildschirm mit Schaltfläche „Karte scannen“" loading="lazy">
+        <div class="screen scan-screen" role="img" aria-label="Scan-Fenster: Karte an das iPhone halten">
+          <div class="sheet">
+            <b>Bereit zum Scannen</b>
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.8" stroke-linecap="round"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg></div>
+            <p>Halte deine Mensakarte an die Oberseite deines iPhones.</p>
+            <div class="cancel">Abbrechen</div>
+          </div>
+        </div>
+        <img src="img/ergebnis.jpg" alt="Guthaben 12,75 € und letzte Buchung 7,85 €" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · KOSTENLOS -->
+<section class="block" id="kostenlos">
+  <div class="wrap">
+    <span class="eyebrow reveal">In der Free-Version</span>
+    <h2 class="reveal">Alles Wichtige, <span class="gradtext">sofort.</span></h2>
+    <p class="lead reveal" style="margin-top:18px">Die Grundfunktionen – ohne Werbung und ohne Konto.</p>
+    <div class="grid4">
+      <div class="card feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18"/></svg></div>
+        <h3>Guthaben</h3>
+        <p>Der aktuelle Betrag auf deiner Karte, centgenau.</p>
+      </div>
+      <div class="card feat reveal" style="--d:.08s">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 4h14v16l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 9h6M9 13h4"/></svg></div>
+        <h3>Letzte Buchung</h3>
+        <p>Was zuletzt abgebucht wurde – praktisch zum Nachprüfen.</p>
+      </div>
+      <div class="card feat reveal" style="--d:.16s">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.2"/></svg></div>
+        <h3>Kartendetails</h3>
+        <p>Kartentyp und Kartennummer (UID) auf einen Blick.</p>
+      </div>
+      <div class="card feat reveal" style="--d:.24s">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <h3>Ton &amp; Vibration</h3>
+        <p>Eine dezente Bestätigung, sobald die Karte gelesen ist.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 · PRO -->
+<section class="scene" id="pro" data-steps="4" data-step="0">
+  <div class="sticky">
+    <div class="wrap split">
+      <div class="steps-col">
+        <span class="eyebrow">Mit Pro <span class="pro-badge">PRO</span></span>
+        <div class="steps">
+          <div class="step">
+            <div class="num">01 — VERLAUF</div>
+            <h3>Dein Guthaben über 30 Tage.</h3>
+            <p>Jeder Scan wird zu einem Punkt im Diagramm. So siehst du, wann du aufgeladen hast und wie schnell das Guthaben schrumpft.</p>
+          </div>
+          <div class="step">
+            <div class="num">02 — AUSGABEN</div>
+            <h3>Was du diesen Monat ausgibst.</h3>
+            <p>Ein Fingertipp schaltet auf die Ausgaben um: aufsummiert seit Monatsbeginn, jeden Monat neu ab 0 €. Aufladungen zählen nicht mit.</p>
+          </div>
+          <div class="step">
+            <div class="num">03 — ERKENNUNG</div>
+            <h3>Aufladung und Ausgabe getrennt.</h3>
+            <p>Hast du zwischen zwei Scans aufgeladen <em>und</em> gegessen? Die App rechnet es auseinander und fragt nach: „Stimmt das?“ Ein Tipp bestätigt, sonst korrigierst du die Beträge.</p>
+          </div>
+          <div class="step">
+            <div class="num">04 — WIDGET</div>
+            <h3>Guthaben auf dem Home- und Sperrbildschirm.</h3>
+            <p>Das Widget zeigt das zuletzt gescannte Guthaben und wann du gescannt hast – ohne die App zu öffnen.</p>
+          </div>
+        </div>
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="phone shots">
+        <img src="img/verlauf.jpg" alt="Diagramm des Guthabens der letzten 30 Tage" loading="lazy">
+        <img src="img/ausgaben.jpg" alt="Ausgaben seit Monatsbeginn: 33,80 €" loading="lazy">
+        <img src="img/erkennung.jpg" alt="Abfrage „Stimmt das?“ mit Aufladung +19,10 € und Ausgabe −4,10 €" loading="lazy">
+        <div class="screen home-screen" role="img" aria-label="Widget auf dem Sperr- und Homebildschirm mit Guthaben 12,75 €"><div class="inner">
+          <div class="lock-time"><small>Dienstag, 17. November</small><strong>9:41</strong></div>
+          <div class="lock-widget"><small>Guthaben</small><b>12,75 €</b><span>Stand 17.11., 09:41</span></div>
+          <div class="home-widget"><small>Guthaben</small><b>12,75 €</b><span>Stand 17.11., 09:41</span></div>
+          <div class="home-label">Guthaben</div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · ERKENNUNG IM DETAIL -->
+<section class="block" id="erkennung">
+  <div class="wrap">
+    <span class="eyebrow reveal">Wie die Erkennung rechnet</span>
+    <h2 class="reveal">Zwei Scans. <span class="gradtext">Eine klare Aufteilung.</span></h2>
+    <p class="lead reveal" style="margin-top:18px">Die Karte verrät nur zwei Zahlen: das Guthaben und die letzte Buchung. Daraus leitet die App ab, was dazwischen passiert ist.</p>
+
+    <div class="calc reveal">
+      <div class="card scan"><small>Scan am Montag</small><strong>12,90 €</strong><span>Guthaben</span></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="card scan"><small>Scan am Mittwoch</small><strong>27,90 €</strong><span>Guthaben · letzte Buchung 4,10 €</span></div>
+    </div>
+    <div class="split-result" id="splitResult">
+      <div class="card amount up reveal">
+        <small>＋ Aufladung</small>
+        <strong data-count="1910" data-sign="+">+0,00 €</strong>
+        <div class="bar"><i></i></div>
+      </div>
+      <div class="card amount down reveal" style="--d:.1s">
+        <small>🍴 Ausgabe</small>
+        <strong data-count="410" data-sign="−">−0,00 €</strong>
+        <div class="bar"><i></i></div>
+      </div>
+    </div>
+    <div class="hint-l reveal">
+      <span class="chip-l">+15,00 € mehr auf der Karte</span>
+      <span>=</span>
+      <span class="chip-l">19,10 € aufgeladen − 4,10 € ausgegeben</span>
+    </div>
+
+    <p class="note reveal"><b>Tipp:</b> Je öfter du scannst, desto genauer wird dein Verlauf.</p>
+  </div>
+</section>
+
+<!-- 6 · DATENSCHUTZ -->
+<section class="block" id="daten">
+  <div class="wrap">
+    <span class="eyebrow reveal">Datenschutz</span>
+    <h2 class="reveal">Deine Daten bleiben <span class="gradtext">auf deinem iPhone.</span></h2>
+    <div class="grid3">
+      <div class="card feat reveal">
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-4 4-5.5 7-5.5s6 1.5 7 5.5"/><path d="M4 4l16 16"/></svg></div>
+        <h3>Kein Konto</h3>
+        <p>Keine Anmeldung, keine E-Mail-Adresse, kein Passwort.</p>
+      </div>
+      <div class="card feat reveal" style="--d:.08s">
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg></div>
+        <h3>Kein Server</h3>
+        <p>Der Verlauf wird nur lokal gespeichert, nach spätestens 90 Tagen verworfen und lässt sich jederzeit löschen.</p>
+      </div>
+      <div class="card feat reveal" style="--d:.16s">
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg></div>
+        <h3>Nur lesen</h3>
+        <p>Die App liest, was die Karte ohne Schlüssel preisgibt. Sie schreibt nichts auf die Karte und verändert kein Guthaben.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 · KOSTENLOS & PRO -->
+<section class="block" id="preise" style="padding-top:0">
+  <div class="wrap">
+    <span class="eyebrow reveal">Free &amp; Pro</span>
+    <h2 class="reveal">Alle Funktionen <span class="gradtext">auf einen Blick.</span></h2>
+    <div class="plans">
+      <div class="card plan reveal">
+        <div class="price">Free</div>
+        <p class="sub">Für den schnellen Blick aufs Guthaben.</p>
+        <ul class="list">
+          <li>Guthaben per NFC</li>
+          <li>Letzte Buchung</li>
+          <li>Kartentyp und Kartennummer</li>
+          <li>Ohne Werbung, ohne Konto</li>
+        </ul>
+      </div>
+      <div class="card plan pro reveal" style="--d:.1s">
+        <div class="price">Pro</div>
+        <p class="sub">Alles aus Free, dazu:</p>
+        <ul class="list plus">
+          <li>Guthabenverlauf der letzten 30 Tage</li>
+          <li>Ausgaben seit Monatsbeginn</li>
+          <li>Erkennung von Aufladung und Ausgabe – bestätigen oder korrigieren</li>
+          <li>Widget für Home- und Sperrbildschirm</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 · FRAGEN -->
+<section class="block" id="fragen" style="padding-top:0">
+  <div class="wrap">
+    <span class="eyebrow reveal">Fragen</span>
+    <h2 class="reveal">Gut zu wissen.</h2>
+    <div class="faq reveal">
+      <details open>
+        <summary>Funktioniert meine Karte?</summary>
+        <p>Die App liest Karten mit MIFARE-DESFire-Chip und InterCard-System, deren Guthaben ohne Schlüssel lesbar ist. Ist das Guthaben auf deiner Karte geschützt, zeigt die App nur Kartentyp und Kartennummer an.</p>
+      </details>
+      <details>
+        <summary>Welches iPhone brauche ich?</summary>
+        <p>Ein iPhone mit iOS 17 oder neuer. NFC funktioniert nur auf einem echten iPhone – halte die Karte an die Oberseite, dort sitzt die Antenne.</p>
+      </details>
+      <details>
+        <summary>Aktualisiert sich das Widget von allein?</summary>
+        <p>Das Widget zeigt das Guthaben deines letzten Scans und wann er war. Neu wird es, sobald du die Karte wieder scannst – die App kann die Karte nicht aus der Ferne lesen.</p>
+      </details>
+      <details>
+        <summary>Ich habe ein Problem oder eine Idee.</summary>
+        <p>Schreib einfach an <a href="mailto:tp-lifestyle@gmx.de">tp-lifestyle@gmx.de</a>.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- 9 · LADEN -->
+<section class="block" id="laden">
+  <div class="wrap">
+    <span class="eyebrow reveal">Probier’s aus</span>
+    <h2 class="reveal">Nie wieder raten, <span class="gradtext">was noch drauf ist.</span></h2>
+    <p class="lead reveal">App laden, Karte ans iPhone halten, fertig.</p>
+    <div class="cta reveal">
+      <a class="btn" href="#laden" data-store>Im App Store laden</a>
+      <a class="btn ghost" href="#hero">Nach oben</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav>
+      <a href="datenschutz.html">Datenschutz</a>
+      <a href="mailto:tp-lifestyle@gmx.de">Kontakt</a>
+    </nav>
+    <p>Guthaben Checker ist eine inoffizielle App und steht in keiner Verbindung zu einem Studierendenwerk, einer Hochschule oder zu InterCard. Alle Beträge auf dieser Seite sind Beispiele.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // App-Store-Link hier eintragen, sobald die App live ist (z. B. https://apps.apple.com/de/app/…/id123456789).
+  var APP_STORE_URL = '';
+  if (APP_STORE_URL) {
+    [].forEach.call(document.querySelectorAll('[data-store]'), function (a) { a.href = APP_STORE_URL; a.target = '_blank'; a.rel = 'noopener'; });
+  }
+
+  var root = document.documentElement;
+  var scenes = [].slice.call(document.querySelectorAll('.scene'));
+  var ticking = false;
+
+  function update() {
+    ticking = false;
+    var vh = window.innerHeight;
+    var max = document.documentElement.scrollHeight - vh;
+    root.style.setProperty('--scroll', max > 0 ? Math.min(window.scrollY / max, 1) : 0);
+    scenes.forEach(function (s) {
+      var r = s.getBoundingClientRect();
+      var span = r.height - vh;
+      var p = span > 0 ? Math.min(Math.max(-r.top / span, 0), 1) : 0;
+      s.style.setProperty('--p', p.toFixed(4));
+      var n = +s.dataset.steps;
+      if (n) s.dataset.step = Math.min(n - 1, Math.floor(p * n));
+    });
+  }
+  function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(update); } }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  update();
+
+  // Beträge hochzählen
+  function euro(c) { return (c / 100).toFixed(2).replace('.', ',') + ' €'; }
+  function countUp(el) {
+    var target = +el.dataset.count, sign = el.dataset.sign, t0 = performance.now();
+    (function tick(t) {
+      var k = Math.min((t - t0) / 1100, 1), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = sign + euro(Math.round(target * e));
+      if (k < 1) requestAnimationFrame(tick);
+    })(t0);
+  }
+
+  // Einblenden
+  var items = [].slice.call(document.querySelectorAll('.reveal'));
+  var split = document.getElementById('splitResult');
+  var counted = false;
+  function runSplit() {
+    if (counted) return;
+    counted = true;
+    split.classList.add('in');
+    [].forEach.call(split.querySelectorAll('[data-count]'), countUp);
+  }
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('in');
+        if (split.contains(e.target)) runSplit();
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    items.forEach(function (el) { io.observe(el); });
+  } else {
+    items.forEach(function (el) { el.classList.add('in'); });
+    runSplit();
+  }
+})();
+</script>
+</body>
+</html>
